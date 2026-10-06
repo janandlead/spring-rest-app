@@ -1,4 +1,4 @@
-﻿# REST, SOAP, HTTP Methods, and Spring GET Mapping
+# REST, SOAP, HTTP Methods, and Spring Request Mapping
 
 ## 1. REST
 
@@ -92,37 +92,41 @@ Use GET for retrieval, searches, and status checks. Do not use it to create, upd
 
 ### Existing project routes
 
-The existing `EmployeeController` uses this structure:
+The current `EmployeeController` has the class-level prefix `@RequestMapping("/api/v1/employees")`.
+
+| Handler | Request | Input and behavior |
+| --- | --- | --- |
+| `getMessage(name)` | `GET /api/v1/employees/{name}` | Reads a path variable and returns a greeting |
+| `getStatus(name)` | `GET /api/v1/employees/status?name=Durga` | Reads a required query parameter and returns a greeting |
+| `getProduct(product)` | `GET /api/v1/employees/product` | Reads a Product from the request body, prints its fields, and echoes it |
+| `saveProduct(product)` | `POST /api/v1/employees` | Reads a Product from the request body, prints its fields, and echoes it |
+
+There is currently no GET handler for the base path alone.
 
 ```java
-@RestController
-@RequestMapping("/api/v1/employees")
-public class EmployeeController {
-    @GetMapping
-    public String getMessage() {
-        return "Welcome to spring boot get mapping ";
-    }
+@GetMapping("/{name}")
+public String getMessage(@PathVariable String name) {
+    return "Hello, How are you " + name;
+}
 
-    @GetMapping("/status")
-    public String getStatus() {
-        return "spring boot get api is working fine ";
-    }
+@GetMapping("/status")
+public String getStatus(@RequestParam String name) {
+    return "Hello, How are you " + name;
 }
 ```
 
-| Handler | Full request path |
-| --- | --- |
-| `getMessage()` | `GET /api/v1/employees` |
-| `getStatus()` | `GET /api/v1/employees/status` |
+`@PathVariable` reads a value from the URL path. `@RequestParam` reads a query parameter. In `getStatus`, `name` is required; omitting it produces a bad-request response. Literal paths such as `/status` and `/product` take precedence over `/{name}`.
 
-`@RestController` writes return values to the response body. These methods return strings; returning a Java DTO can produce JSON through configured message converters. The class prefix combines with the method path. See [Spring request mappings](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html).
+`@RestController` writes return values to the response body. These greeting methods return strings; the Product handlers return a DTO that can be converted to JSON. The class prefix combines with the method path.
 
 With the application running on the default port, try:
 
 ```powershell
-curl.exe -i http://localhost:8080/api/v1/employees
-curl.exe -i http://localhost:8080/api/v1/employees/status
+curl.exe -i http://localhost:8080/api/v1/employees/Durga
+curl.exe -i "http://localhost:8080/api/v1/employees/status?name=Durga"
 ```
+
+Both requests return `Hello, How are you Durga`.
 
 ### Path variables and query parameters
 
@@ -194,7 +198,7 @@ public String getMessage() {
 }
 ```
 
-The project already avoids duplication: its methods map to the base path and `/status`.
+The project avoids identical mappings: its GET methods map to `/{name}`, `/status`, and `/product`, while POST maps to the base path.
 
 ### Fix 2: same path, explicit distinct query conditions
 
@@ -228,11 +232,59 @@ Spring's registration and request-selection checks are visible in [AbstractHandl
 
 Also avoid stacking `@GetMapping` and another mapping annotation on the same Java method. Spring warns and uses only the first mapping found. For multiple paths to one handler, use `@GetMapping({"/status", "/health"})`. See [Spring mapping annotation guidance](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html).
 
-## 6. Quick revision
+## 6. Product DTO, @RequestBody, and @PostMapping
+
+The current `Product` class in `src/main/java/com/durga/srping_rest_app/dto/Product.java` is a data transfer object (DTO). It carries request and response data through private fields with public getters and setters.
+
+| Field | Java type | Example |
+| --- | --- | --- |
+| `name` | `String` | `Phone` |
+| `model` | `String` | `P100` |
+| `price` | `double` | `25000.0` |
+| `color` | `String` | `Black` |
+
+`@RequestBody Product product` asks Spring to convert the request body into a Product using a configured message converter. For JSON requests, send `Content-Type: application/json`. Returning the Product from a `@RestController` allows it to be serialized into the response body.
+
+The current POST handler is:
+
+```java
+@PostMapping
+public Product saveProduct(@RequestBody Product product) {
+    System.out.println(
+            product.getName() + " " + product.getColor() + " "
+            + product.getModel() + " " + product.getPrice());
+    return product;
+}
+```
+
+Despite its name, `saveProduct` only prints the fields and echoes the Product. There is no service, repository, database persistence, generated ID, or validation in this implementation. The normal successful response is `200 OK`; the handler does not explicitly set `201 Created` or a Location header.
+
+With the application running, test it in PowerShell:
+
+```powershell
+$productJson = '{"name":"Phone","model":"P100","price":25000.0,"color":"Black"}'
+Invoke-RestMethod -Method Post `
+    -Uri 'http://localhost:8080/api/v1/employees' `
+    -ContentType 'application/json' `
+    -Body $productJson
+```
+
+The response contains the submitted Product fields; JSON property order is not significant.
+
+### Current GET request-body example
+
+`getProduct` uses `@GetMapping("/product")` with `@RequestBody Product product`. It also prints and echoes the submitted Product. A browser address-bar request supplies no JSON body, so it does not satisfy this handler's required body.
+
+This is a request-binding demonstration. As discussed in section 4, GET bodies have no generally defined HTTP semantics and may be rejected or ignored by clients and intermediaries. For retrieval, prefer GET with a product identifier in the path or filters in query parameters. Use the existing POST endpoint to practice sending a JSON body.
+
+## 7. Quick revision
 
 - REST is an architectural style; SOAP defines XML messaging.
 - GET reads, POST submits, PUT replaces, PATCH partially modifies, DELETE removes.
 - GET must not perform business-data updates.
 - Class-level and method-level paths combine into the endpoint path.
+- PathVariable binds path values; RequestParam binds query parameters.
+- RequestBody converts a request body into a Java object; a DTO carries the data.
+- The current Product POST endpoint echoes input with 200 OK and does not save it.
 - Identical GET mappings normally stop startup with an ambiguous-mapping IllegalStateException.
 - Distinct paths or explicit, unambiguous mapping conditions resolve the conflict.
